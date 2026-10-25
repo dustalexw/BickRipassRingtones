@@ -1,0 +1,8 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+data/
+*.sqlite3*
+*.xcuserstate
+build/

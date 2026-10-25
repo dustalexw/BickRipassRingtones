@@ -1,5 +1,7 @@
 # BickRipassRingtones
 
+![BickRipassRingtones icon](Resources/Icon-preview.png)
+
 A native SwiftUI ringtone library for macOS. Collect audio, preview it with one click, edit clips and artwork, and export tones for your Mac or iPhone.
 
 ## Download and run
@@ -81,3 +83,14 @@ The verifier checks real media import, original preservation, metadata persisten
 - `Sources/BickRipassRingtones.swift`: SwiftUI interface, playback model, native dialogs, and app entry point.
 - `Sources/Verification.swift`: real-media verification.
 - `Resources/`: app metadata and icon.
+
+
+## App icon
+
+The B monogram, ripped lime waveform, and purple tile are rendered from editable native drawing code. Regenerate all icon sizes with:
+
+```sh
+swift Scripts/GenerateIcon.swift /absolute/path/to/icon-output
+```
+
+Copy the generated `BickRipassRingtones.icns` into `Resources/`, then rebuild the app.

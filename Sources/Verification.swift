@@ -1,5 +1,13 @@
 import Foundation
 
+final class VerificationDefaults:UserDefaults {
+    private var values:[String:Any]=[:]
+    override func set(_ value:Any?,forKey key:String){values[key]=value}
+    override func string(forKey key:String)->String?{values[key] as? String}
+    override func data(forKey key:String)->Data?{values[key] as? Data}
+    override func removeObject(forKey key:String){values.removeValue(forKey:key)}
+}
+
 @MainActor func verifyNativeLibrary() throws {
     guard let index=CommandLine.arguments.firstIndex(of:"--verify"),CommandLine.arguments.count>index+1 else{throw ToneError.message("Pass a scratch directory after --verify.")}
     let directory=URL(fileURLWithPath:CommandLine.arguments[index+1]);let fm=FileManager.default
@@ -60,6 +68,26 @@ import Foundation
     guard try reopened.tones().first(where:{$0.id==id})?.artwork==replacement else{throw ToneError.message("Artwork was lost when reopening the library.")}
     try library.removeArtwork(toneID:id)
     guard try library.tones().first(where:{$0.id==id})?.artwork==nil else{throw ToneError.message("Artwork removal failed.")}
+    // Simulate another Mac and a translocated launch path; no local machine paths.
+    let fakeBundle=directory.appendingPathComponent("private/AppTranslocation/random/d/BickRipassRingtones.app")
+    let freshDefault=directory.appendingPathComponent("AnotherMac/Application Support/BickRipassRingtones")
+    guard LibraryLocation.resolve(bundleURL:fakeBundle,portable:true,configured:nil,remembered:nil,defaultDirectory:freshDefault) == .needsRecovery else{throw ToneError.message("Missing adjacent library did not offer recovery.")}
+    guard !fm.fileExists(atPath:freshDefault.path) else{throw ToneError.message("Recovery silently created an empty library.")}
+    guard LibraryLocation.resolve(bundleURL:fakeBundle,portable:true,configured:nil,remembered:directory,defaultDirectory:freshDefault) == .ready(directory.standardizedFileURL) else{throw ToneError.message("Remembered library failed after simulated translocation.")}
+    let enclosing=directory.appendingPathComponent("Unzipped release")
+    let adjacent=enclosing.appendingPathComponent("Library")
+    try fm.createDirectory(at:adjacent,withIntermediateDirectories:true)
+    try fm.copyItem(at:directory.appendingPathComponent("library.sqlite3"),to:adjacent.appendingPathComponent("library.sqlite3"))
+    guard LibraryLocation.existingLibrary(at:enclosing)?.path==adjacent.standardizedFileURL.path else{throw ToneError.message("Unzipped-folder selection was not recognized.")}
+    guard LibraryLocation.resolve(bundleURL:enclosing.appendingPathComponent("BickRipassRingtones.app"),portable:true,configured:nil,remembered:nil,defaultDirectory:freshDefault) == .ready(adjacent.standardizedFileURL) else{throw ToneError.message("Adjacent portable library failed.")}
+    let invalidDirectory=directory.appendingPathComponent("Not a library")
+    try fm.createDirectory(at:invalidDirectory,withIntermediateDirectories:true)
+    guard LibraryLocation.existingLibrary(at:invalidDirectory)==nil else{throw ToneError.message("Invalid library folder accepted.")}
+    let prefs=VerificationDefaults()
+    defer{prefs.removeObject(forKey:LibraryLocation.pathKey);prefs.removeObject(forKey:LibraryLocation.bookmarkKey)}
+    LibraryLocation.remember(directory,defaults:prefs)
+    guard LibraryLocation.remembered(defaults:prefs)?.path==directory.standardizedFileURL.path else{throw ToneError.message("Remembered folder did not persist.")}
+    print("PASS: portable library lookup, simulated app translocation, folder recovery, remembered location, and no silent empty-library creation.")
     print("PASS: artwork validation, replacement, persistence, exact embedded images in M4R and MP3, artwork re-import, removal, and original preservation.")
     print("PASS: native Swift import, preserved original, saved metadata, clip validation, M4R/AAC, MP3, WAV, original export, unique ZIP filenames, and persistence.")
 }

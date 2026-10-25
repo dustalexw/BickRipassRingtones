@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/dustalexw/BickRipassRingtones/releases/tag/v1.0.1"><img src="docs/badge-release.svg" alt="Release v1.0.1"></a>
+  <a href="https://github.com/dustalexw/BickRipassRingtones/releases/tag/v1.0.2"><img src="docs/badge-release.svg" alt="Release v1.0.2"></a>
   <a href="https://github.com/dustalexw/BickRipassRingtones/releases/latest"><img src="docs/badge-download.svg" alt="Download the macOS app"></a>
   <a href="#requirements"><img src="docs/badge-platform.svg" alt="macOS 14 or later, Apple Silicon"></a>
 </p>
@@ -38,7 +38,7 @@ Bring your sounds → Click to play → Make the cut → Give it a cover → Exp
 
 ## Download the Mac app
 
-Download **BickRipassRingtones-v1.0.1-macOS-arm64.zip** from the
+Download **BickRipassRingtones-v1.0.2-macOS-arm64.zip** from the
 [latest release](https://github.com/dustalexw/BickRipassRingtones/releases/latest), unzip it, and open
 **BickRipassRingtones.app**. Move it to Applications or add it to your Dock if you like.
 
@@ -82,6 +82,14 @@ The command script compiles for your Mac’s architecture, bundles the icon, and
 
 The icon’s editable drawing source is in `Scripts/GenerateIcon.swift`.
 See the [full guide](docs/guide.md) for build settings, image limits, storage, and verification.
+
+## Opening a portable library on another Mac
+
+Keep the included **Library** folder with the app. macOS can launch a temporary copy of an app,
+which can hide nearby folders from that copy. If the library is not found, choose **Locate Library…**
+and select the Library folder, or the unzipped release folder containing it. The location is remembered.
+Use **File → Open library…** to switch folders later. A missing portable library does not silently create
+an empty replacement; starting an empty library is an explicit choice.
 
 ## Your sounds stay local
 

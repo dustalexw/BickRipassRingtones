@@ -8,7 +8,7 @@ func durationText(_ seconds:Double)->String {let value=max(0,Int(seconds));retur
 func toneColor(_ name:String)->Color {switch name{case "coral":return Color(red:0.83,green:0.58,blue:0.47);case "mint":return Color(red:0.46,green:0.65,blue:0.59);case "blue":return Color(red:0.46,green:0.61,blue:0.76);case "rose":return Color(red:0.73,green:0.50,blue:0.63);case "amber":return Color(red:0.76,green:0.62,blue:0.35);case "indigo":return Color(red:0.47,green:0.48,blue:0.66);case "sage":return Color(red:0.55,green:0.63,blue:0.48);default:return accent}}
 
 @MainActor final class LibraryModel:ObservableObject {
-    let library:ToneLibrary
+    @Published private(set) var library:ToneLibrary
     @Published var tones:[Tone]=[]
     @Published var collections:[String]=[]
     @Published var selection=Set<String>() { didSet { selectionChanged() } }
@@ -40,6 +40,20 @@ func toneColor(_ name:String)->Color {switch name{case "coral":return Color(red:
     func selectionChanged(){guard let id=selection.sorted().first,let t=tones.first(where:{$0.id==id}) else{editing=nil;return};if editing?.id != id {editing=t}}
     func save() throws {guard let t=editing else{return};try library.save(t);reload();notice="Changes saved."}
     func favorite(_ tone:Tone){var t=tone;t.favorite.toggle();do{try library.save(t);reload();if editing?.id==t.id{editing?.favorite=t.favorite}}catch{self.error=error.localizedDescription}}
+    func chooseLibrary(){
+        guard busy==nil else{return}
+        guard let directory=LibraryRecovery.pickLibrary() else{return}
+        do {
+            let opened=try ToneLibrary(directory:directory)
+            let newTones=try opened.tones()
+            pause();player=nil;nowPlaying=nil;position=0
+            library=opened;tones=newTones;collections=try opened.collections()
+            selection=[];editing=nil;search="";section="all";lastExport=nil
+            if let first=visible.first{selection=[first.id];editing=first}
+            LibraryLocation.remember(directory)
+            notice="Opened \(tones.count) tones from \(directory.lastPathComponent)."
+        }catch{self.error=error.localizedDescription}
+    }
     func chooseFiles(){let panel=NSOpenPanel();panel.title="Import audio into BickRipassRingtones";panel.allowsMultipleSelection=true;panel.canChooseDirectories=false;panel.allowedContentTypes=[.audio,UTType(filenameExtension:"m4r") ?? .data];if panel.runModal() == .OK{importFiles(panel.urls)}}
     func importFiles(_ urls:[URL]) {
         guard !urls.isEmpty,busy==nil else{return};busy="Importing \(urls.count) audio file\(urls.count==1 ? "":"s")…"
@@ -289,17 +303,50 @@ struct RootView:View {
         .alert("BickRipassRingtones",isPresented:Binding(get:{model.error != nil},set:{if !$0{model.error=nil}})){Button("OK"){model.error=nil}}message:{Text(model.error ?? "")}
     }
 }
+@MainActor enum LibraryRecovery {
+    static func pickLibrary()->URL? {
+        let panel=NSOpenPanel();panel.title="Locate your ringtone library";panel.message="Choose Library, or the unzipped release folder that contains it.";panel.prompt="Open library";panel.canChooseDirectories=true;panel.canChooseFiles=false;panel.allowsMultipleSelection=false
+        while panel.runModal() == .OK {
+            if let url=panel.url,let library=LibraryLocation.existingLibrary(at:url){return library}
+            let alert=NSAlert();alert.messageText="Choose the folder containing library.sqlite3";alert.informativeText="Select the Library folder from the unzipped release. Your files have not been changed.";alert.runModal()
+        }
+        return nil
+    }
+    static func recover(defaultDirectory:URL)->URL? {
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate(ignoringOtherApps:true)
+        while true {
+            let alert=NSAlert();alert.messageText="Locate your ringtone library";alert.informativeText="macOS may launch a temporary copy of this app where nearby folders are not visible. Your Library folder can still be beside the original app. Select it once and its location will be remembered.";alert.addButton(withTitle:"Locate Library…");alert.addButton(withTitle:"Start an empty library");alert.addButton(withTitle:"Quit")
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                if let url=pickLibrary(){LibraryLocation.remember(url);return url}
+            case .alertSecondButtonReturn:
+                LibraryLocation.remember(defaultDirectory);return defaultDirectory
+            default:return nil
+            }
+        }
+    }
+}
 enum AppContext {static var library:ToneLibrary!}
 struct BickRipassRingtonesApp:App {
     @StateObject private var model=LibraryModel(library:AppContext.library)
-    var body:some Scene {WindowGroup("BickRipassRingtones"){RootView(model:model)}.defaultSize(width:1380,height:960).windowStyle(.titleBar).commands{CommandGroup(replacing:.newItem){Button("Import audio…",action:model.chooseFiles).keyboardShortcut("i");Button("New collection…"){model.newCollection=true}.keyboardShortcut("n")};CommandMenu("Tones"){Button("Play / pause"){model.play()};Button("Export M4R…"){model.export(format:"m4r")}.keyboardShortcut("e");Button("Transfer to iPhone…"){model.transfer=true};Divider();Button("Reveal recent export"){model.reveal()}.disabled(model.lastExport==nil)}}}
+    var body:some Scene {WindowGroup("BickRipassRingtones"){RootView(model:model)}.defaultSize(width:1380,height:960).windowStyle(.titleBar).commands{CommandGroup(replacing:.newItem){Button("Import audio…",action:model.chooseFiles).keyboardShortcut("i");Button("New collection…"){model.newCollection=true}.keyboardShortcut("n");Divider();Button("Open library…",action:model.chooseLibrary).keyboardShortcut("o",modifiers:[.command,.shift]).disabled(model.busy != nil)};CommandMenu("Tones"){Button("Play / pause"){model.play()};Button("Export M4R…"){model.export(format:"m4r")}.keyboardShortcut("e");Button("Transfer to iPhone…"){model.transfer=true};Divider();Button("Reveal recent export"){model.reveal()}.disabled(model.lastExport==nil)}}}
 }
 @main struct BickRipassRingtonesMain {
     @MainActor static func main(){
         do {
             if CommandLine.arguments.contains("--verify"){try verifyNativeLibrary();return}
             let path=Bundle.main.object(forInfoDictionaryKey:"BickRipassRingtonesDataDirectory") as? String
-            let directory=path.map{URL(fileURLWithPath:$0)} ?? FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("BickRipassRingtones")
+            let portable=Bundle.main.object(forInfoDictionaryKey:"BickRipassRingtonesPortableLibrary") as? String == "Library"
+            let standard=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("BickRipassRingtones")
+            let resolved=LibraryLocation.resolve(bundleURL:Bundle.main.bundleURL,portable:portable,configured:path,remembered:LibraryLocation.remembered(),defaultDirectory:standard)
+            let directory:URL
+            switch resolved {
+            case .ready(let url):directory=url
+            case .needsRecovery:
+                guard let recovered=LibraryRecovery.recover(defaultDirectory:standard) else{return}
+                directory=recovered
+            }
             AppContext.library=try ToneLibrary(directory:directory)
             BickRipassRingtonesApp.main()
         }catch{if CommandLine.arguments.contains("--verify"){fputs("Verification failed: \(error.localizedDescription)\n",stderr);exit(1)};let alert=NSAlert();alert.messageText="BickRipassRingtones could not open its library";alert.informativeText=error.localizedDescription;alert.runModal()}

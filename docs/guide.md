@@ -94,3 +94,10 @@ swift Scripts/GenerateIcon.swift /absolute/path/to/icon-output
 ```
 
 Copy the generated `BickRipassRingtones.icns` into `Resources/`, then rebuild the app.
+
+
+## Portable-library recovery
+
+Portable distributions read a Library folder next to the app. When macOS app translocation hides that adjacent folder, startup offers Locate Library. Select Library or the enclosing unzipped release folder; the app validates library.sqlite3 before opening and remembers the chosen folder with a bookmark. File → Open library… switches libraries later. No security settings need to be disabled.
+
+The verifier simulates a translocated bundle path, checks adjacent and selected libraries, rejects unrelated folders, checks remembered locations, and confirms that missing portable data does not silently create an empty replacement. This has been tested locally; the other computer's launch has not been directly inspected.

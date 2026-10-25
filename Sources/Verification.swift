@@ -87,6 +87,8 @@ final class VerificationDefaults:UserDefaults {
     defer{prefs.removeObject(forKey:LibraryLocation.pathKey);prefs.removeObject(forKey:LibraryLocation.bookmarkKey)}
     LibraryLocation.remember(directory,defaults:prefs)
     guard LibraryLocation.remembered(defaults:prefs)?.path==directory.standardizedFileURL.path else{throw ToneError.message("Remembered folder did not persist.")}
+    let usbClip=try library.export([tone],format:"m4r")
+    try verifyPhoneTransfer(audio:Data(contentsOf:usbClip.file),directory:directory.appendingPathComponent("USB transfer checks"))
     print("PASS: portable library lookup, simulated app translocation, folder recovery, remembered location, and no silent empty-library creation.")
     print("PASS: artwork validation, replacement, persistence, exact embedded images in M4R and MP3, artwork re-import, removal, and original preservation.")
     print("PASS: native Swift import, preserved original, saved metadata, clip validation, M4R/AAC, MP3, WAV, original export, unique ZIP filenames, and persistence.")

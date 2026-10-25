@@ -33,8 +33,26 @@ Bring your sounds → Click to play → Make the cut → Give it a cover → Exp
 * **Keep the good bit.** Choose up to 30 seconds, add a fade in and out, and balance the volume when exporting.
 * **Make it look like yours.** Change each tone’s artwork. M4R and MP3 exports carry the cover with them, and imports pick up existing embedded artwork.
 * **Pack one or pack the collection.** Export M4R, MP3, WAV, untouched originals, or a ZIP of selected tones.
-* **At home on your Mac.** Native file dialogs, playback, Finder reveal, sharing, and AirDrop.
+* **At home on your Mac.** Native file dialogs, playback, Finder reveal, sharing, AirDrop, and a USB-transfer beta.
 * **Your originals stay yours.** Editing and exporting leave the imported source audio intact. The library and its artwork stay local.
+
+## USB transfer beta
+
+**[Download 1.1.0-beta.1](https://github.com/dustalexw/BickRipassRingtones/releases/tag/v1.1.0-beta.1)** adds direct USB compatibility transfer. Install its optional device support:
+
+```sh
+brew install libimobiledevice
+```
+
+Select tones, open **Devices**, connect and unlock the iPhone, then choose **Refresh → Check connection**.
+Approve **Trust This Computer** on the phone if asked. **Review & send to iPhone** prepares M4R clips,
+backs up the phone's ringtone index, uploads and reads back each clip, and merges new entries into the index.
+It preserves existing entries and stops if another sync changes the index during transfer.
+
+This uses libimobiledevice's media service, rather than Apple's official sync interface. **iOS 27 has not
+been verified on physical hardware.** File/index read-back confirms the transfer, not that iOS has accepted
+it as a selectable ringtone. Check **Settings → Sounds & Haptics → Ringtone** afterward. The app does not
+change your default ringtone. See the [USB guide](docs/usb-transfer.md) for compatibility and recovery details.
 
 ## Download the Mac app
 
@@ -64,7 +82,7 @@ For Apple’s GarageBand workflow, export **WAV**, send it with AirDrop or iClou
 GarageBand on iPhone, and share the project as a **Ringtone**. Export **M4R** for workflows that accept ringtone files.
 [Apple’s step-by-step instructions](https://support.apple.com/en-us/120692).
 
-AirDrop sends the file; it does not assign the ringtone. Direct iPhone sync is not included.
+AirDrop sends the file; it does not assign the ringtone. The USB beta provides a compatibility transfer path; default-ringtone assignment remains on the iPhone.
 Artwork is embedded in M4R and MP3 exports; WAV and untouched-original exports do not apply artwork changes.
 Preview plays the selected original audio; fades and volume balancing apply on export.
 

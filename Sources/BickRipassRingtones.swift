@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import AVFoundation
 import UniformTypeIdentifiers
+import CryptoKit
 
 let accent=Color(red:0.46,green:0.34,blue:0.66)
 func durationText(_ seconds:Double)->String {let value=max(0,Int(seconds));return String(format:"%d:%02d",value/60,value%60)}
@@ -27,6 +28,61 @@ func toneColor(_ name:String)->Color {switch name{case "coral":return Color(red:
     @Published var position=0.0
     @Published var nowPlaying:Tone?
     @Published var lastExport:URL?
+    @Published var usbPhones:[USBPhone]=[]
+    @Published var usbPhoneID="" {didSet{if oldValue != usbPhoneID{verifiedPhoneID=nil;usbPhoneName=nil}}}
+    @Published var verifiedPhoneID:String?
+    @Published var usbPhoneName:String?
+    @Published var usbLastBackup:URL?
+    @Published var usbStatus="Connect your iPhone by USB, unlock it, and tap Refresh."
+    @Published var usbChecking=false
+    var transferTones:[Tone]{let selected=tones.filter{selection.contains($0.id)};return selected.isEmpty ? editing.map{[$0]} ?? []:selected}
+    func refreshUSB(){
+        guard !usbChecking,busy==nil else{return};usbChecking=true;verifiedPhoneID=nil
+        Task {
+            do{usbPhones=try await Task.detached{try USBPhoneStore.devices()}.value;usbPhoneID=usbPhones.first?.id ?? "";usbStatus=usbPhones.isEmpty ? "No USB iPhone found. Check the cable and unlock the phone.":"Choose the iPhone, then check its connection."}
+            catch{usbPhones=[];usbPhoneID="";usbStatus=error.localizedDescription}
+            usbChecking=false
+        }
+    }
+    func checkUSB(){
+        guard !usbChecking,busy==nil,!usbPhoneID.isEmpty else{return};usbChecking=true;verifiedPhoneID=nil
+        let id=usbPhoneID
+        Task {
+            do {
+                let phone=try await Task.detached{let store=try USBPhoneStore(udid:id);_ = try IPhoneTransfer.index(IPhoneTransfer.snapshot(from:store).data);return (store.name,store.version)}.value
+                if id==usbPhoneID{usbPhoneName=phone.0;verifiedPhoneID=id;usbStatus="Ready: \(phone.0) · iOS \(phone.1)."}
+            }catch{usbStatus=error.localizedDescription}
+            usbChecking=false
+        }
+    }
+    func sendToUSB(){
+        guard busy==nil,let verified=verifiedPhoneID,verified==usbPhoneID,let name=usbPhoneName else{return}
+        do{try save()}catch{self.error=error.localizedDescription;return}
+        let selected=transferTones
+        guard !selected.isEmpty,selected.count<=200 else{error="Select 1–200 tones for USB transfer.";return}
+        let alert=NSAlert();alert.messageText="Send \(selected.count) ringtone\(selected.count==1 ? "":"s") to \(name)?";alert.informativeText="USB compatibility mode adds the selected M4R clips and updates the phone's ringtone index. Existing tones are preserved and the index is backed up on this Mac. Availability in Settings depends on iOS. The default ringtone will not be changed.";alert.addButton(withTitle:"Send to iPhone");alert.addButton(withTitle:"Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else{return}
+        let library=self.library;busy="Preparing iPhone ringtones…"
+        Task {
+            do {
+                let result=try await Task.detached { [self] () throws -> PhoneTransferReceipt in
+                    var prepared:[PhoneTone]=[]
+                    for (i,tone) in selected.enumerated(){
+                        let result=try library.export([tone],format:"m4r")
+                        prepared.append(PhoneTone(title:tone.title,duration:tone.length,audio:try Data(contentsOf:result.file)))
+                        Task{@MainActor in if self.busy != nil{self.busy="Preparing \(i+1) of \(selected.count)…"}}
+                    }
+                    let store=try USBPhoneStore(udid:verified)
+                    let identifier=SHA256.hash(data:Data(verified.utf8)).map{String(format:"%02x",$0)}.joined()
+                    let backup=library.directory.appendingPathComponent("device-backups").appendingPathComponent(identifier)
+                    return try IPhoneTransfer.send(prepared,to:store,backupDirectory:backup){completed,total in
+                        Task{@MainActor in if self.busy != nil{self.busy="Sending \(completed) of \(total) to iPhone…"}}
+                    }
+                }.value
+                busy=nil;usbStatus="Transferred \(result.count) tones to \(name). Check Settings → Sounds & Haptics → Ringtone. Close and reopen Settings if needed.";notice="USB transfer finished. Original ringtone index backed up in device-backups.";usbLastBackup=result.backup
+            }catch{busy=nil;usbStatus=error.localizedDescription;self.error=error.localizedDescription}
+        }
+    }
     private var player:AVAudioPlayer?,timer:Timer?,clipEnd=0.0,clipStart=0.0
     init(library:ToneLibrary){self.library=library;reload();if let first=tones.sorted(by:{$0.title<$1.title}).first{selection=[first.id];editing=first}}
     var visible:[Tone]{
@@ -287,13 +343,36 @@ struct LibraryContent:View {
     }}
 }
 struct TransferView:View {
-    @ObservedObject var model:LibraryModel;@Environment(\.dismiss) private var dismiss
-    var body:some View {VStack(alignment:.leading,spacing:17){HStack{Text("Take your tones with you.").font(.system(size:27,weight:.bold,design:.rounded));Spacer();Button{dismiss()}label:{Image(systemName:"xmark.circle.fill").foregroundStyle(.secondary)}.buttonStyle(.plain)};Text("Native Mac sharing. A little help for your iPhone.").foregroundStyle(.secondary)
-        if let file=model.lastExport{GroupBox("Recent export"){HStack{Image(systemName:"waveform").font(.title);VStack(alignment:.leading){Text(file.lastPathComponent).font(.headline);Text("Ready to share").font(.caption).foregroundStyle(.secondary)};Spacer();Button("Show in Finder"){model.reveal()};Button("AirDrop…"){model.airDrop()};ShareLink(item:file){Image(systemName:"square.and.arrow.up")}}.padding(9)}}
-        GroupBox{VStack(alignment:.leading,spacing:13){Label("iPhone ringtone",systemImage:"iphone").font(.headline);Text("1. Export a clip of up to 30 seconds. Use WAV for GarageBand, or M4R for workflows that accept ringtone files.");Text("2. AirDrop the file, or save it to iCloud Drive so it appears in Files on iPhone.");Text("3. Import WAV into GarageBand on iPhone. From My Songs, share the project as Ringtone, then Export.");Text("4. Choose Use sound as to assign it to calls, texts, or a contact.");Link("Open Apple’s ringtone guide ↗",destination:URL(string:"https://support.apple.com/en-us/120692")!)}.font(.callout).padding(12)}
-        Text("AirDrop transfers the audio file; it does not install or assign a ringtone. Protected Apple Music downloads cannot be imported. BickRipassRingtones does not modify system sounds or sync directly with an iPhone.").font(.caption).foregroundStyle(.secondary)
-        HStack{Button("Open library folder"){NSWorkspace.shared.open(model.library.directory)};Spacer();Button("Done"){dismiss()}.keyboardShortcut(.defaultAction)}
-    }.padding(30).frame(width:640)}
+    @ObservedObject var model:LibraryModel
+    @Environment(\.dismiss) private var dismiss
+    var body:some View {
+        VStack(alignment:.leading,spacing:17){
+            HStack{Text("Send your tones to iPhone.").font(.system(size:27,weight:.bold,design:.rounded));Spacer();Button{dismiss()}label:{Image(systemName:"xmark.circle.fill").foregroundStyle(.secondary)}.buttonStyle(.plain).disabled(model.busy != nil)}
+            ScrollView {
+                VStack(alignment:.leading,spacing:17){
+                    GroupBox {
+                        VStack(alignment:.leading,spacing:14){
+                            Label("USB transfer · compatibility mode",systemImage:"cable.connector").font(.headline)
+                            Text("Select tones in your library, connect and unlock your iPhone, and approve Trust This Computer on the phone when asked.").font(.callout).foregroundStyle(.secondary)
+                            HStack{Picker("iPhone",selection:$model.usbPhoneID){if model.usbPhones.isEmpty{Text("No phone selected").tag("")};ForEach(model.usbPhones){phone in Text(phone.label).tag(phone.id)}};Button("Refresh",action:model.refreshUSB).disabled(model.usbChecking || model.busy != nil)}
+                            HStack{Button("Check connection",action:model.checkUSB).disabled(model.usbPhoneID.isEmpty || model.usbChecking || model.busy != nil);if model.usbChecking{ProgressView().controlSize(.small)};Spacer();Text("\(model.transferTones.count) tones selected").font(.caption).foregroundStyle(.secondary)}
+                            Text(model.usbStatus).font(.callout).textSelection(.enabled).fixedSize(horizontal:false,vertical:true)
+                            if let busy=model.busy{HStack{ProgressView().controlSize(.small);Text(busy).font(.caption)}}
+                            Button("Review & send to iPhone",action:model.sendToUSB).buttonStyle(.borderedProminent).tint(accent).disabled(model.verifiedPhoneID != model.usbPhoneID || model.verifiedPhoneID==nil || model.transferTones.isEmpty || model.usbChecking || model.busy != nil)
+                            if let backup=model.usbLastBackup{Button("Show transfer backup"){NSWorkspace.shared.activateFileViewerSelecting([backup])}}
+                            Text("Setup: brew install libimobiledevice").font(.system(.caption,design:.monospaced)).textSelection(.enabled)
+                            Text("Uses the iPhone media service, with an index backup and read-back verification. iOS compatibility varies; iOS 27 is not yet device-verified. This is not Apple’s official sync interface. It does not set your default ringtone.").font(.caption).foregroundStyle(.secondary)
+                        }.padding(12)
+                    }
+                    if let file=model.lastExport{GroupBox("Recent export"){HStack{Image(systemName:"waveform").font(.title);VStack(alignment:.leading){Text(file.lastPathComponent).font(.headline);Text("Ready to share").font(.caption).foregroundStyle(.secondary)};Spacer();Button("Show in Finder"){model.reveal()};Button("AirDrop…"){model.airDrop()};ShareLink(item:file){Image(systemName:"square.and.arrow.up")}}.padding(9)}}
+                    DisclosureGroup("AirDrop and GarageBand alternative"){
+                        VStack(alignment:.leading,spacing:12){Text("Export WAV for GarageBand, or M4R for workflows accepting ringtone files. Send it with AirDrop or iCloud Drive. In GarageBand on iPhone, import the file, return to My Songs, then Share → Ringtone → Export → Use sound as.");Link("Apple’s ringtone guide ↗",destination:URL(string:"https://support.apple.com/en-us/120692")!);Text("AirDrop transfers a file, rather than assigning a ringtone. Protected Apple Music downloads cannot be imported.").font(.caption).foregroundStyle(.secondary)}.font(.callout).padding(.vertical,10)
+                    }
+                }
+            }
+            HStack{Button("Open library folder"){NSWorkspace.shared.open(model.library.directory)};Spacer();Button("Done"){dismiss()}.keyboardShortcut(.defaultAction).disabled(model.busy != nil)}
+        }.padding(30).frame(width:680).frame(maxHeight:850)
+    }
 }
 struct RootView:View {
     @ObservedObject var model:LibraryModel
